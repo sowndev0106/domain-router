@@ -1,0 +1,140 @@
+import { useState } from 'react';
+import { X } from 'lucide-react';
+import { Route } from '../types';
+
+interface AddDomainRouteDialogProps {
+  onAdd: (route: Partial<Route>) => void;
+  onClose: () => void;
+}
+
+interface DomainFormData {
+  domain: string;
+  target_host: string;
+  target_port: string;
+  ssl_enabled: boolean;
+  ssl_mode: 'self-signed' | 'letsencrypt' | 'passthrough' | 'custom';
+}
+
+function AddDomainRouteDialog({ onAdd, onClose }: AddDomainRouteDialogProps) {
+  const [formData, setFormData] = useState<DomainFormData>({
+    domain: '',
+    target_host: '127.0.0.1',
+    target_port: '',
+    ssl_enabled: true,
+    ssl_mode: 'self-signed',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const route: Partial<Route> = {
+      type: 'domain',
+      domain: formData.domain,
+      target_host: formData.target_host || '127.0.0.1',
+      target_port: parseInt(formData.target_port),
+      ssl_enabled: formData.ssl_enabled,
+      ssl_mode: formData.ssl_mode,
+      enabled: true,
+    };
+
+    onAdd(route);
+  };
+
+  const handleChange = (field: keyof DomainFormData, value: string | boolean) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h2>Add Domain Route</h2>
+          <button onClick={onClose} className="btn-icon">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="dialog-body">
+          <div className="form-group">
+            <label htmlFor="domain">Domain:</label>
+            <input
+              id="domain"
+              type="text"
+              placeholder="example.com or api.local.dev"
+              value={formData.domain}
+              onChange={(e) => handleChange('domain', e.target.value)}
+              required
+            />
+            <small>The domain name to redirect (e.g., seller-dev.openlive.lotte.vn)</small>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="target_host">Target Host:</label>
+            <input
+              id="target_host"
+              type="text"
+              placeholder="127.0.0.1"
+              value={formData.target_host}
+              onChange={(e) => handleChange('target_host', e.target.value)}
+              required
+            />
+            <small>The target host (e.g., 127.0.0.1, 192.168.1.100, server.local)</small>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="target_port">Target Port:</label>
+            <input
+              id="target_port"
+              type="number"
+              placeholder="80"
+              min="1"
+              max="65535"
+              value={formData.target_port}
+              onChange={(e) => handleChange('target_port', e.target.value)}
+              required
+            />
+            <small>The target port to forward traffic to</small>
+          </div>
+
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={formData.ssl_enabled}
+                onChange={(e) => handleChange('ssl_enabled', e.target.checked)}
+              />
+              <span>Enable HTTPS/SSL</span>
+            </label>
+          </div>
+
+          {formData.ssl_enabled && (
+            <div className="form-group">
+              <label htmlFor="ssl_mode">SSL Mode:</label>
+              <select
+                id="ssl_mode"
+                value={formData.ssl_mode}
+                onChange={(e) => handleChange('ssl_mode', e.target.value)}
+              >
+                <option value="self-signed">Self-Signed Certificate (Auto)</option>
+                <option value="letsencrypt">Let's Encrypt (Future)</option>
+                <option value="passthrough">SSL Passthrough</option>
+              </select>
+              <small>How SSL certificates should be handled</small>
+            </div>
+          )}
+
+          <div className="dialog-footer">
+            <button type="button" onClick={onClose} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary">
+              Add Route
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default AddDomainRouteDialog;
