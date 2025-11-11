@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Plus, RefreshCw, Settings, Play, Square, Activity } from 'lucide-react';
+import { Plus, RefreshCw, Settings, Play, Square, Activity, Zap } from 'lucide-react';
 import { api } from './api';
 import { Route, ProxyStatus } from './types';
 import RouteList from './components/RouteList';
 import HostsList from './components/HostsList';
 import AddDomainRouteDialog from './components/AddDomainRouteDialog';
 import AddPortMappingDialog from './components/AddPortMappingDialog';
+import QuickPortMappingDialog from './components/QuickPortMappingDialog';
 import './App.css';
 
 type TabType = 'domain' | 'port';
+type DialogType = 'none' | 'domain' | 'port' | 'quick';
 
 function App() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [proxyStatus, setTraefikStatus] = useState<ProxyStatus>({ running: false, http_port: 80, https_port: 443, active_routes: 0 });
-  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [dialogType, setDialogType] = useState<DialogType>('none');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('domain');
@@ -92,9 +94,22 @@ function App() {
       setError(null);
       await api.addRoute(route);
       await loadRoutes();
-      setShowAddDialog(false);
+      setDialogType('none');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add route');
+    }
+  };
+
+  const handleAddQuickRoutes = async (routes: Partial<Route>[]) => {
+    try {
+      setError(null);
+      for (const route of routes) {
+        await api.addRoute(route);
+      }
+      await loadRoutes();
+      setDialogType('none');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add routes');
     }
   };
 
@@ -194,7 +209,7 @@ function App() {
                 </span>
               </div>
               <div className="tab-buttons">
-                <button onClick={() => setShowAddDialog(true)} className="btn btn-primary">
+                <button onClick={() => setDialogType('domain')} className="btn btn-primary">
                   <Plus size={18} />
                   <span>Add Route</span>
                 </button>
@@ -221,9 +236,13 @@ function App() {
           <>
             <div className="tab-actions">
               <div className="tab-buttons">
-                <button onClick={() => setShowAddDialog(true)} className="btn btn-primary">
+                <button onClick={() => setDialogType('quick')} className="btn btn-success">
+                  <Zap size={18} />
+                  <span>Quick Setup (80 & 443)</span>
+                </button>
+                <button onClick={() => setDialogType('port')} className="btn btn-primary">
                   <Plus size={18} />
-                  <span>Add Route</span>
+                  <span>Add Mapping</span>
                 </button>
                 <button onClick={loadData} className="btn btn-secondary" disabled={loading}>
                   <RefreshCw size={18} className={loading ? 'spinning' : ''} />
@@ -265,17 +284,24 @@ function App() {
         </div>
       </footer>
 
-      {showAddDialog && activeTab === 'domain' && (
+      {dialogType === 'domain' && (
         <AddDomainRouteDialog
           onAdd={handleAddRoute}
-          onClose={() => setShowAddDialog(false)}
+          onClose={() => setDialogType('none')}
         />
       )}
 
-      {showAddDialog && activeTab === 'port' && (
+      {dialogType === 'port' && (
         <AddPortMappingDialog
           onAdd={handleAddRoute}
-          onClose={() => setShowAddDialog(false)}
+          onClose={() => setDialogType('none')}
+        />
+      )}
+
+      {dialogType === 'quick' && (
+        <QuickPortMappingDialog
+          onAdd={handleAddQuickRoutes}
+          onClose={() => setDialogType('none')}
         />
       )}
     </div>

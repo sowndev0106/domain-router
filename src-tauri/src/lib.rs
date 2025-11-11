@@ -5,7 +5,9 @@ mod routes;
 mod hosts;
 mod proxy;
 mod ssl;
+mod acme;
 mod utils;
+mod privilege;
 
 use anyhow::Result;
 use log::info;

@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use parking_lot::Mutex;
 use log::{info, error};
 use tokio::task::JoinHandle;
+use tokio_rustls::TlsAcceptor;
 
 use crate::routes::{Route, RouteType};
 
@@ -43,6 +44,25 @@ pub async fn start_proxy(routes: Vec<Route>) -> Result<()> {
     // Stop any existing proxy first
     stop_proxy().await?;
 
+    // Collect ports that need to be bound
+    let mut required_ports = Vec::new();
+    for route in routes.iter().filter(|r| r.enabled) {
+        if let RouteType::PortMapping { source_port, .. } = &route.route_type {
+            required_ports.push(*source_port);
+            // If SSL enabled and source is 80, we'll also need 443
+            if route.ssl_enabled && *source_port == 80 {
+                required_ports.push(443);
+            }
+        }
+    }
+
+    // Check and request capability if needed for privileged ports
+    // This will show a GUI dialog if we need elevated permissions
+    if let Err(e) = crate::privilege::ensure_capability_for_ports(&required_ports) {
+        error!("Failed to obtain necessary permissions: {}", e);
+        return Err(e);
+    }
+
     // Build route map
     let route_map = build_route_map(&routes);
 
@@ -54,24 +74,43 @@ pub async fn start_proxy(routes: Vec<Route>) -> Result<()> {
     for route in routes.iter().filter(|r| r.enabled) {
         if let RouteType::PortMapping { source_port, target_host, target_port } = &route.route_type {
             port_mappings.insert(*source_port, (target_host.clone(), *target_port));
+
+            // If SSL is enabled and source port is 80, also add 443 mapping
+            if route.ssl_enabled && *source_port == 80 {
+                port_mappings.insert(443, (target_host.clone(), *target_port));
+                info!("SSL enabled: automatically added port 443 -> {}:{}", target_host, target_port);
+            }
         }
     }
 
     // Start HTTP servers for each port mapping
     let mut server_tasks = Vec::new();
 
-    for (source_port, (target_host, target_port)) in port_mappings {
+    for (source_port, (target_host, target_port)) in &port_mappings {
         let route_map_clone = route_map.clone();
         let shutdown_rx_clone = shutdown_tx.subscribe();
+        let source_port_val = *source_port;
+        let target_host_val = target_host.clone();
+        let target_port_val = *target_port;
 
-        let task = tokio::spawn(async move {
-            if let Err(e) = start_port_server(source_port, target_host, target_port, route_map_clone, shutdown_rx_clone).await {
-                error!("Port {} server error: {}", source_port, e);
-            }
-        });
+        info!("Started proxy server on port {} -> {}:{}", source_port, target_host, target_port);
+
+        // Use HTTPS server for port 443
+        let task = if source_port_val == 443 {
+            tokio::spawn(async move {
+                if let Err(e) = start_https_server(target_host_val, target_port_val, shutdown_rx_clone).await {
+                    error!("Port 443 (HTTPS) server error: {}", e);
+                }
+            })
+        } else {
+            tokio::spawn(async move {
+                if let Err(e) = start_port_server(source_port_val, target_host_val, target_port_val, route_map_clone, shutdown_rx_clone).await {
+                    error!("Port {} server error: {}", source_port_val, e);
+                }
+            })
+        };
 
         server_tasks.push(task);
-        info!("Started proxy server on port {} -> {}:{}", source_port, target_host, target_port);
     }
 
     // Store handle
@@ -218,6 +257,96 @@ async fn handle_connection(
         }
         Err(e) => {
             error!("Proxy error: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+async fn start_https_server(
+    target_host: String,
+    target_port: u16,
+    mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<()> {
+    info!("Starting HTTPS server on port 443");
+
+    // Load or generate TLS config using "localhost" as domain
+    let tls_config = crate::ssl::load_or_generate_tls_config("localhost")
+        .map_err(|e| anyhow::anyhow!("Failed to load TLS config: {}", e))?;
+
+    let tls_acceptor = TlsAcceptor::from(tls_config);
+
+    let addr: SocketAddr = ([0, 0, 0, 0], 443).into();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to bind to port 443: {}", e))?;
+
+    info!("HTTPS server listening on {}", addr);
+
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.recv() => {
+                info!("Shutting down HTTPS server on port 443");
+                break;
+            }
+            result = listener.accept() => {
+                match result {
+                    Ok((stream, client_addr)) => {
+                        let tls_acceptor = tls_acceptor.clone();
+                        let target_host = target_host.clone();
+                        let target_port = target_port;
+
+                        tokio::spawn(async move {
+                            // Perform TLS handshake
+                            match tls_acceptor.accept(stream).await {
+                                Ok(tls_stream) => {
+                                    info!("TLS handshake successful from {}", client_addr);
+                                    if let Err(e) = handle_https_connection(tls_stream, client_addr, target_host, target_port).await {
+                                        error!("HTTPS connection error from {}: {}", client_addr, e);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("TLS handshake failed from {}: {}", client_addr, e);
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        error!("Failed to accept connection on port 443: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_https_connection(
+    mut tls_stream: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    client_addr: SocketAddr,
+    target_host: String,
+    target_port: u16,
+) -> Result<()> {
+    info!("Proxying HTTPS connection from {} to {}:{}", client_addr, target_host, target_port);
+
+    // Connect to target (plain HTTP)
+    let target_addr = format!("{}:{}", target_host, target_port);
+    let mut target_stream = match tokio::net::TcpStream::connect(&target_addr).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("Failed to connect to {}: {}", target_addr, e);
+            return Err(anyhow::anyhow!("Failed to connect to target: {}", e));
+        }
+    };
+
+    // Bi-directional proxy: TLS client <-> plain HTTP backend
+    match tokio::io::copy_bidirectional(&mut tls_stream, &mut target_stream).await {
+        Ok((from_client, from_server)) => {
+            info!("HTTPS connection closed: {} bytes from client, {} bytes from server", from_client, from_server);
+        }
+        Err(e) => {
+            error!("HTTPS proxy error: {}", e);
         }
     }
 

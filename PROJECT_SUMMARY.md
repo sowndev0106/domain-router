@@ -1,332 +1,218 @@
 # Domain Router - Project Summary
 
-## 📋 Tổng quan Implementation
+## Overview
+Domain Router là ứng dụng desktop (Tauri + React) để quản lý reverse proxy và SSL/TLS cho localhost và Docker containers.
 
-Đã hoàn thành 100% implementation Domain Router theo requirements specification.
+## Features Implemented
 
-## ✅ Hoàn thành
+### ✅ 1. HTTP Reverse Proxy
+- TCP-level proxying
+- Port mapping (e.g., 8080 → 4000)
+- Domain routing
+- Bidirectional traffic forwarding
 
-### 1. Backend (Rust) ✓
-- **routes module**: Quản lý routes với Config, Route structs, validation đầy đủ
-- **hosts module**: Tự động chỉnh sửa `/etc/hosts` với sudo (pkexec)
-- **traefik module**: Generate Traefik config (YAML), start/stop/reload service
-- **ssl module**: Generate self-signed certificates với rcgen
-- **utils module**: Port availability checking
+### ✅ 2. HTTPS with Self-Signed Certificates
+- Automatic certificate generation
+- TLS termination on port 443
+- Certificate caching in `~/.config/domain-router/certs/`
+- Forward decrypted traffic to backend
 
-### 2. Frontend (React + TypeScript) ✓
-- **App.tsx**: Main application với state management
-- **RouteList.tsx**: Table hiển thị routes với icons, badges, actions
-- **AddRouteDialog.tsx**: Dialog form để add routes (Domain/Port Mapping)
-- **api.ts**: Tauri API wrapper với TypeScript types
-- **types.ts**: Full TypeScript definitions
-- **App.css**: Modern, responsive design với dark mode support
+### ✅ 3. Quick Setup (80 & 443)
+- One-click setup for HTTP + HTTPS
+- Automatically creates both port 80 and 443 mappings
+- SSL enabled by default
 
-### 3. Features Implemented ✓
+### ✅ 4. Privilege Escalation (pkexec)
+- GUI dialog for password when binding ports < 1024
+- Uses Linux capabilities (`CAP_NET_BIND_SERVICE`)
+- No need to run entire app as root
+- Secure and follows Linux best practices
 
-#### Domain Routing (Case 1)
-- ✅ Add domain route với validation
-- ✅ Auto update `/etc/hosts`
-- ✅ Traefik router generation
-- ✅ HTTP/HTTPS support
-- ✅ SSL self-signed certificates
-- ✅ Enable/disable routes
-- ✅ Delete routes với cleanup
+### ✅ 5. Let's Encrypt Foundation
+- ACME client module structure
+- Configuration types
+- Certificate caching
+- Ready for future implementation
 
-#### Port Mapping (Case 2)
-- ✅ Port-to-port mapping
-- ✅ SSL support (self-signed/passthrough)
-- ✅ Conflict detection
-- ✅ Dynamic Traefik config
+## Architecture
 
-#### UI/UX
-- ✅ Clean, modern interface
-- ✅ Real-time Traefik status monitoring
-- ✅ Error handling với notifications
-- ✅ Empty states
-- ✅ Loading states
-- ✅ Responsive design
-- ✅ Dark mode automatic
-
-### 4. Configuration & Setup ✓
-- ✅ Tauri configuration file
-- ✅ Cargo.toml với all dependencies
-- ✅ package.json setup
-- ✅ Build scripts
-- ✅ Installation script (`install.sh`)
-
-### 5. Documentation ✓
-- ✅ Comprehensive README.md
-- ✅ QUICK_START.md guide
-- ✅ Installation instructions
-- ✅ Usage examples
-- ✅ Troubleshooting guide
-- ✅ API documentation (inline)
-
-### 6. Code Quality ✓
-- ✅ Rust code compiled successfully
-- ✅ Type-safe TypeScript
-- ✅ Error handling đầy đủ
-- ✅ Validation logic
-- ✅ Security considerations (sudo handling)
-- ✅ Clean code structure
-
-## 📊 Thống kê
-
-### Files Created/Modified
 ```
-Total: 20+ files
-
-Backend (Rust):
-- src-tauri/Cargo.toml (updated)
-- src-tauri/tauri.conf.json (updated)
-- src-tauri/src/lib.rs (complete rewrite)
-- src-tauri/src/main.rs (updated)
-- src-tauri/src/routes/mod.rs (new)
-- src-tauri/src/hosts/mod.rs (new)
-- src-tauri/src/traefik/mod.rs (new)
-- src-tauri/src/ssl/mod.rs (new)
-- src-tauri/src/utils/mod.rs (new)
-
-Frontend (React/TS):
-- src/App.tsx (complete rewrite)
-- src/App.css (complete rewrite)
-- src/api.ts (new)
-- src/types.ts (new)
-- src/components/RouteList.tsx (new)
-- src/components/AddRouteDialog.tsx (new)
-
-Config & Docs:
-- package.json (updated)
-- .gitignore (updated)
-- README.md (complete rewrite)
-- QUICK_START.md (new)
-- install.sh (new)
-- PROJECT_SUMMARY.md (this file)
+┌─────────────────────────────────────────────────────────┐
+│                     Frontend (React)                    │
+│  - Route Management UI                                  │
+│  - Quick Setup Dialog                                   │
+│  - Proxy Status Display                                 │
+└────────────────────┬────────────────────────────────────┘
+                     │ Tauri IPC
+┌────────────────────▼────────────────────────────────────┐
+│                  Backend (Rust/Tauri)                   │
+│                                                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │   Routes    │  │    Proxy     │  │  SSL/TLS      │  │
+│  │  Management │  │   Engine     │  │  Manager      │  │
+│  └─────────────┘  └──────────────┘  └───────────────┘  │
+│                                                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │  Privilege  │  │     ACME     │  │    Hosts      │  │
+│  │   Handler   │  │   (Future)   │  │   Manager     │  │
+│  └─────────────┘  └──────────────┘  └───────────────┘  │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Lines of Code (Approximate)
-- Rust: ~1,500 lines
-- TypeScript/React: ~800 lines
-- CSS: ~530 lines
-- Documentation: ~600 lines
-- **Total: ~3,400 lines**
+## How It Works
 
-## 🎯 Key Features
+### HTTP Proxy (Port 80)
+```
+Browser → http://localhost:80 → Proxy (Port 80) → Backend (Port 4000)
+                                  ↓ Plain TCP forwarding
+                         {"message": "Hello"} ← Backend Response
+```
 
-### Security
-- ✅ Sudo prompt với pkexec (graphical)
-- ✅ `/etc/hosts` backup automatic
-- ✅ Input validation (domain, ports)
-- ✅ Port conflict detection
-- ✅ Self-signed cert generation
+### HTTPS Proxy (Port 443)
+```
+Browser → https://localhost:443 → Proxy (Port 443)
+                                     ↓
+                              TLS Handshake
+                           (rustls + self-signed cert)
+                                     ↓
+                              Decrypt HTTPS
+                                     ↓
+                      → Backend (Port 4000) [Plain HTTP]
+                                     ↓
+                      ← Response (Plain HTTP)
+                                     ↓
+                           Encrypt with TLS
+                                     ↓
+Browser ← Encrypted Response ← Proxy
+```
 
-### Performance
-- ✅ Async operations (Tokio)
-- ✅ Traefik hot-reload (no restart)
-- ✅ Efficient state management
-- ✅ Minimal memory footprint
+## File Structure
 
-### User Experience
-- ✅ One-click route adding
-- ✅ Real-time status updates
-- ✅ Clear error messages
-- ✅ Visual feedback
-- ✅ Intuitive UI
+```
+domain-router/
+├── src/                          # Frontend (React + TypeScript)
+│   ├── App.tsx                   # Main component
+│   ├── components/
+│   │   ├── QuickPortMappingDialog.tsx   # Quick setup UI
+│   │   ├── RouteList.tsx
+│   │   └── ...
+│   └── api.ts                    # Tauri API calls
+│
+├── src-tauri/                    # Backend (Rust)
+│   ├── src/
+│   │   ├── lib.rs                # Main library
+│   │   ├── routes/               # Route management
+│   │   ├── proxy/                # Reverse proxy engine
+│   │   │   └── mod.rs            # HTTP + HTTPS servers
+│   │   ├── ssl/                  # Certificate management
+│   │   │   └── mod.rs            # Self-signed cert generation
+│   │   ├── acme/                 # Let's Encrypt (foundation)
+│   │   │   └── mod.rs
+│   │   ├── privilege.rs          # pkexec + capabilities
+│   │   └── hosts/                # /etc/hosts management
+│   └── Cargo.toml                # Dependencies
+│
+├── scripts/
+│   └── post-install.sh           # Grant capabilities
+│
+├── PERMISSIONS.md                # Privilege handling docs
+├── SSL_SETUP.md                  # SSL/TLS documentation
+├── LETS_ENCRYPT.md               # Let's Encrypt guide
+└── PROJECT_SUMMARY.md            # This file
+```
 
-## 🚀 How to Use
+## Key Technologies
 
-### Quick Start (3 steps)
+### Frontend:
+- **React** - UI framework
+- **TypeScript** - Type safety
+- **Tauri** - Desktop app framework
 
+### Backend:
+- **Rust** - System programming language
+- **Tokio** - Async runtime
+- **tokio-rustls** - TLS implementation
+- **rustls** - Pure-Rust TLS library
+- **rcgen** - Certificate generation
+- **rustls-acme** - ACME protocol (Let's Encrypt)
+
+## Security Features
+
+1. **Linux Capabilities** - Only grant `CAP_NET_BIND_SERVICE`, not full root
+2. **pkexec Integration** - GUI password dialog for privilege escalation
+3. **Self-signed Certificates** - Automatic generation, secure storage
+4. **TLS 1.3** - Modern encryption standards
+5. **No Plain Text Passwords** - All privilege requests via OS mechanisms
+
+## Current Limitations
+
+1. **Self-signed Certificates Only** - Browser warnings expected (use `-k` with curl)
+2. **Let's Encrypt Not Complete** - Foundation in place, needs:
+   - Challenge handler
+   - Auto-renewal
+   - UI integration
+3. **Linux Only** - Capabilities and pkexec are Linux-specific
+4. **HTTP-01 Challenge Only** - DNS-01 not implemented
+
+## Usage
+
+### Development:
 ```bash
-# 1. Install
-./install.sh
-
-# 2. Run
-domain-router
-
-# 3. Add route
-Click "Add Route" → Fill form → Click "Add Route"
+npm install
+npm run tauri dev
 ```
 
-### Example Workflow
-
+### Production:
 ```bash
-# Start your local server
-python3 -m http.server 80
-
-# In Domain Router app:
-# 1. Click "Add Route"
-# 2. Type: Domain Route
-# 3. Domain: api.local.dev
-# 4. Port: 80
-# 5. SSL: Enabled
-# 6. Click "Add Route"
-
-# Test
-curl https://api.local.dev -k
+npm run tauri build
+sudo setcap 'cap_net_bind_service=+ep' src-tauri/target/release/domain-router
+./src-tauri/target/release/domain-router
 ```
 
-## 📦 Dependencies
+### Quick Test:
+1. Start NestJS on port 4000: `npm run start`
+2. Open Domain Router UI
+3. Click "Quick Setup (80 & 443)"
+4. Enter target port: `4000`
+5. Click "Start Proxy"
+6. Test:
+   ```bash
+   curl http://localhost          # HTTP works
+   curl -k https://localhost      # HTTPS works (ignore cert warning)
+   ```
 
-### Backend
-- tauri 2.x
-- tokio (async runtime)
-- serde/serde_json/serde_yaml
-- rcgen (SSL certificates)
-- regex, uuid, chrono
-- anyhow, thiserror
-- nix, libc (system calls)
-- lazy_static
+## Next Steps (If Needed)
 
-### Frontend
-- React 19.x
-- TypeScript 5.x
-- lucide-react (icons)
-- @tauri-apps/api
+### For Let's Encrypt:
+1. Implement HTTP-01 challenge handler
+2. Add certificate auto-renewal
+3. Create UI for email/domain config
+4. Test with staging server
+5. Deploy to production with real domain
 
-### External Tools
-- Traefik v3.x (reverse proxy)
-- pkexec (sudo GUI)
+### For Production:
+1. Package as .deb installer
+2. Add systemd service
+3. Create man pages
+4. Add logging to file
+5. Implement metrics/monitoring
 
-## 🎨 Design Patterns
+## Documentation
 
-### Backend
-- **Module pattern**: Routes, Hosts, Traefik, SSL, Utils
-- **State management**: Mutex-protected config
-- **Error handling**: Result<T, E> với anyhow
-- **Async/await**: Tokio runtime
+- [PERMISSIONS.md](PERMISSIONS.md) - How privilege escalation works
+- [SSL_SETUP.md](SSL_SETUP.md) - SSL/TLS setup and usage
+- [LETS_ENCRYPT.md](LETS_ENCRYPT.md) - Let's Encrypt integration guide
+- [INSTALL.md](INSTALL.md) - Installation instructions
 
-### Frontend
-- **Component-based**: Reusable React components
-- **Hooks**: useState, useEffect
-- **API abstraction**: Centralized Tauri calls
-- **Type safety**: Full TypeScript
+## Conclusion
 
-## 🔄 Architecture Flow
+Domain Router hiện đã có:
+- ✅ HTTP reverse proxy hoạt động
+- ✅ HTTPS với self-signed certificates
+- ✅ Quick setup cho ports 80 & 443
+- ✅ Privilege escalation an toàn
+- ✅ Foundation cho Let's Encrypt
 
-```
-User Action (UI)
-    ↓
-React Component
-    ↓
-api.ts (Tauri API)
-    ↓
-Rust Backend (lib.rs)
-    ↓
-Module Logic (routes/hosts/traefik)
-    ↓
-System Operations
-    ↓
-- /etc/hosts update (sudo)
-    - Traefik config generation
-    - SSL cert generation
-    ↓
-Response back to UI
-```
+Perfect cho **development và internal networks**!
 
-## ✨ Highlights
-
-### Best Practices Implemented
-- ✅ Separation of concerns
-- ✅ Type safety (Rust + TypeScript)
-- ✅ Error handling at every layer
-- ✅ User feedback for all actions
-- ✅ Config persistence
-- ✅ Graceful degradation
-- ✅ Security-first approach
-
-### Innovation Points
-- ✅ Automatic `/etc/hosts` management với GUI sudo
-- ✅ Self-signed SSL generation on-the-fly
-- ✅ Traefik hot-reload without restart
-- ✅ Dark mode support automatic
-- ✅ Port conflict prevention
-
-## 📈 Future Enhancements (v2.0)
-
-Đã documented trong README.md:
-- Docker container routing
-- Wildcard domains (`*.dev.local`)
-- Real Let's Encrypt integration
-- Import/export configs
-- System tray icon
-- Auto-start on boot
-- macOS/Windows support
-
-## 🎯 Success Criteria
-
-Tất cả requirements đã được đáp ứng:
-
-### From REQUIREMENTS.md
-- ✅ Domain routing với /etc/hosts
-- ✅ Port mapping với SSL
-- ✅ Traefik integration
-- ✅ GUI với Tauri
-- ✅ Self-signed certificates
-- ✅ Enable/disable routes
-- ✅ Real-time status
-- ✅ Sudo handling
-- ✅ Error handling
-- ✅ Configuration persistence
-
-### Performance Requirements
-- ✅ App startup: < 2 seconds
-- ✅ Config reload: < 500ms
-- ✅ UI responsiveness: 60 FPS
-- ✅ Memory usage: < 50MB
-- ✅ Binary size: ~10MB (optimized release)
-
-## 🛠️ Build Status
-
-```bash
-✅ Rust code: cargo check passed
-✅ TypeScript: No compilation errors
-✅ Tauri config: Valid
-✅ Dependencies: All resolved
-✅ Ready for: npm run tauri build
-```
-
-## 📝 Notes
-
-### Known Limitations
-1. Requires Ubuntu (Linux)
-2. Needs sudo access for `/etc/hosts`
-3. Ports 80/443 must be available
-4. Self-signed certs only (v1.0)
-
-### Testing Recommendations
-1. Test on clean Ubuntu VM
-2. Verify sudo prompts work
-3. Test multiple routes
-4. Test enable/disable functionality
-5. Test Traefik start/stop
-6. Verify SSL certificates
-7. Check /etc/hosts cleanup
-
-## 🎓 Learning Points
-
-Project này demonstrate:
-- Rust systems programming
-- Tauri desktop framework
-- React + TypeScript modern stack
-- System administration automation
-- Security best practices
-- User experience design
-- Full-stack development
-
-## 🏆 Conclusion
-
-Domain Router là một **production-ready** desktop application cho Ubuntu developers để:
-- Test production domains locally
-- Manage port mappings easily
-- Handle SSL automatically
-- Control everything via intuitive GUI
-
-**Status**: ✅ COMPLETE và READY TO USE
-
----
-
-**Version**: 1.0.0
-**Last Updated**: 2025-11-10
-**Build Status**: ✅ Passing
-**Documentation**: 📚 Complete
+Cho **production với domain thật**, cần complete Let's Encrypt implementation (có documentation chi tiết trong [LETS_ENCRYPT.md](LETS_ENCRYPT.md)).
