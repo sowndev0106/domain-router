@@ -1,8 +1,8 @@
-# Domain Router 🚀
+# Domain Router
 
-Reverse proxy và SSL/TLS manager cho localhost và Docker containers.
+A cross-platform reverse proxy and SSL/TLS manager for localhost and Docker containers.
 
-## 📥 Downloads
+## Downloads
 
 | Platform | File | Size |
 |----------|------|------|
@@ -14,7 +14,7 @@ Reverse proxy và SSL/TLS manager cho localhost và Docker containers.
 
 **Windows:**
 ```
-Download và chạy Domain Router_1.0.0_x64-setup.exe
+Download and run Domain Router_1.0.0_x64-setup.exe
 ```
 
 **Linux (AppImage):**
@@ -28,63 +28,54 @@ chmod +x "Domain Router_1.0.0_amd64.AppImage"
 sudo dpkg -i "Domain Router_1.0.0_amd64.deb"
 ```
 
-## ✨ Features
+## Features
 
-- ✅ **HTTP Reverse Proxy** - Port forwarding và domain routing
-- ✅ **HTTPS với Self-Signed Certificates** - TLS termination tự động
-- ✅ **Quick Setup (80 & 443)** - One-click configuration cho HTTP + HTTPS
-- ✅ **Privilege Escalation** - GUI dialog để xin quyền (không cần sudo)
-- ✅ **Let's Encrypt Foundation** - Sẵn sàng cho production (cần complete)
+- **HTTP Reverse Proxy** - Port forwarding and domain routing
+- **HTTPS with Self-Signed Certificates** - Automatic TLS termination
+- **Quick Setup (80 & 443)** - One-click configuration for HTTP + HTTPS
+- **Cross-Platform** - Works on Windows and Linux
+- **Privilege Escalation** - GUI dialog for elevated permissions (no manual sudo)
+- **Let's Encrypt Foundation** - Ready for production (partial implementation)
 
-## 🚀 Quick Start
+## Quick Start
 
-### Build tất cả cùng lúc (Khuyên dùng):
+### Using Pre-built Downloads
+
+1. Download the installer for your platform from the table above
+2. Install and run the application
+3. Click "Quick Setup (80 & 443)"
+4. Enter your backend target port (e.g., `3000`)
+5. Click "Start Proxy"
+
+### Building from Source
 
 ```bash
-# Clone và vào folder
-cd /home/sown/workplace/docker-app/dynamic-routing
+# Clone and enter the directory
+cd domain-router
 
-# Install dependencies (chỉ cần 1 lần)
+# Install dependencies
 npm install
 
-# Build frontend + backend + grant capabilities
+# Build everything
 npm run build:all
-```
 
-Sau khi build xong (~10 phút), chạy:
-
-```bash
+# Run
 ./src-tauri/target/release/domain-router
 ```
 
-### Development Mode:
-
-```bash
-npm run tauri:dev
-```
-
-## 📖 Documentation
-
-- **[HUONG_DAN_BUILD_RUN.md](HUONG_DAN_BUILD_RUN.md)** - Hướng dẫn build chi tiết (tiếng Việt)
-- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Tổng quan project & architecture
-- **[SSL_SETUP.md](SSL_SETUP.md)** - SSL/TLS setup & troubleshooting
-- **[LETS_ENCRYPT.md](LETS_ENCRYPT.md)** - Let's Encrypt integration guide
-- **[PERMISSIONS.md](PERMISSIONS.md)** - Privilege handling explained
-- **[INSTALL.md](INSTALL.md)** - Installation instructions
-
-## 🎯 Usage Example
+## Usage Example
 
 1. Start your backend service:
    ```bash
-   # Ví dụ: NestJS trên port 4000
+   # Example: Node.js app on port 3000
    npm run start
    ```
 
-2. Open Domain Router UI
+2. Open Domain Router
 
 3. Click "Quick Setup (80 & 443)"
 
-4. Enter target port: `4000`
+4. Enter target port: `3000`
 
 5. Click "Start Proxy"
 
@@ -94,38 +85,39 @@ npm run tauri:dev
    curl -k https://localhost      # HTTPS works!
    ```
 
-## 🛠️ Technology Stack
+## How It Works
 
-### Frontend:
+```
+                    ┌─────────────────────────────────────┐
+                    │          Domain Router              │
+                    │                                     │
+Browser ─────────── │  Port 80  ──────────────────────── │ ───► Backend
+(HTTP)              │  (HTTP Proxy)                       │      (Port 3000)
+                    │                                     │
+Browser ─────────── │  Port 443 ──────────────────────── │ ───► Backend
+(HTTPS)             │  (TLS Termination + Proxy)          │      (Port 3000)
+                    │                                     │
+                    └─────────────────────────────────────┘
+```
+
+- **Port 80**: Plain HTTP passthrough
+- **Port 443**: TLS termination with auto-generated self-signed certificates
+
+## Technology Stack
+
+**Frontend:**
 - React 19
 - TypeScript
 - Vite
 - Tauri (Desktop UI)
 
-### Backend:
+**Backend:**
 - Rust
 - Tokio (Async runtime)
 - tokio-rustls (TLS)
 - rcgen (Certificate generation)
 
-## 📦 Available Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm install` | Install dependencies |
-| `npm run build` | Build frontend only |
-| `npm run build:all` | **Build everything (frontend + backend + grant caps)** |
-| `npm run tauri:dev` | Development mode with hot reload |
-| `npm run tauri:build` | Production build |
-
-## 🔐 Security
-
-- **Linux Capabilities** - Only grants `CAP_NET_BIND_SERVICE`, not full root
-- **pkexec Integration** - GUI password dialog for privilege escalation
-- **Self-signed Certificates** - Automatic generation and secure storage
-- **TLS 1.3** - Modern encryption standards
-
-## ⚙️ Requirements
+## Requirements
 
 ### For Users (Pre-built downloads):
 - **Windows**: Windows 10/11 (x64)
@@ -135,30 +127,52 @@ npm run tauri:dev
 - Node.js 20+
 - Rust 1.75+
 - 2GB RAM minimum
-- Ports 80 and 443 available
 
-## 🐛 Troubleshooting
+## Platform-Specific Notes
 
-### Port already in use:
+### Windows
+- UAC prompt will appear when modifying the hosts file
+- No special permissions needed for port binding
+
+### Linux
+- Uses `pkexec` for privilege escalation (GUI password dialog)
+- Requires `CAP_NET_BIND_SERVICE` capability for ports < 1024
+- The app will automatically request permissions when needed
+
+## Security
+
+- **Linux Capabilities** - Only grants `CAP_NET_BIND_SERVICE`, not full root
+- **pkexec Integration** - GUI password dialog for privilege escalation
+- **Self-signed Certificates** - Automatic generation and secure storage
+- **TLS 1.2/1.3** - Modern encryption standards
+
+## Troubleshooting
+
+### Port already in use
 ```bash
+# Check what's using port 80
 sudo lsof -i :80
-sudo systemctl stop nginx  # or apache2
+
+# Stop nginx/apache if running
+sudo systemctl stop nginx
 ```
 
-### Permission denied on ports 80/443:
+### Permission denied on ports 80/443 (Linux)
 ```bash
-sudo setcap 'cap_net_bind_service=+ep' src-tauri/target/release/domain-router
+sudo setcap 'cap_net_bind_service=+ep' /path/to/domain-router
 ```
 
-### SSL certificate errors:
+### SSL certificate errors
 ```bash
+# Delete old certificates (they will regenerate)
 rm -rf ~/.config/domain-router/certs
-# Restart app - certificates will be regenerated
 ```
 
-More help: See [HUONG_DAN_BUILD_RUN.md](HUONG_DAN_BUILD_RUN.md#kiểm-tra-lỗi)
+### Hosts file not updating (Windows)
+- Run the application as Administrator, or
+- Allow the UAC prompt when it appears
 
-## 📊 Project Structure
+## Project Structure
 
 ```
 domain-router/
@@ -170,15 +184,31 @@ domain-router/
 │   ├── src/
 │   │   ├── proxy/           # Reverse proxy engine
 │   │   ├── ssl/             # Certificate management
+│   │   ├── hosts/           # Hosts file management
 │   │   ├── acme/            # Let's Encrypt (foundation)
-│   │   └── privilege.rs     # pkexec integration
+│   │   └── privilege.rs     # Permission handling
 │   └── Cargo.toml
-├── scripts/
-│   └── build-and-setup.sh   # All-in-one build script
+├── releases/                 # Pre-built binaries
 └── docs/                     # Documentation
 ```
 
-## 🤝 Contributing
+## Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm install` | Install dependencies |
+| `npm run build` | Build frontend only |
+| `npm run build:all` | Build everything (frontend + backend + permissions) |
+| `npm run tauri:dev` | Development mode with hot reload |
+| `npm run tauri:build` | Production build |
+
+## Documentation
+
+- [BUILD.md](BUILD.md) - Detailed build instructions
+- [SSL_SETUP.md](SSL_SETUP.md) - SSL/TLS configuration
+- [PERMISSIONS.md](PERMISSIONS.md) - Permission handling explained
+
+## Contributing
 
 Contributions welcome! Please:
 1. Fork the repo
@@ -186,16 +216,10 @@ Contributions welcome! Please:
 3. Make your changes
 4. Submit a pull request
 
-## 📝 License
+## License
 
 MIT License - See LICENSE file
 
-## 💬 Support
-
-- Issues: [GitHub Issues](https://github.com/your-repo/issues)
-- Docs: See `docs/` folder
-- Email: support@example.com
-
 ---
 
-**Built with ❤️ using Rust + React + Tauri**
+**Built with Rust + React + Tauri**

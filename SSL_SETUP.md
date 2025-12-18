@@ -1,12 +1,13 @@
-# SSL/TLS Support
+# SSL/TLS Configuration
 
 ## Overview
 
-Domain Router now supports HTTPS with SSL/TLS termination! When you enable SSL for port 80, the proxy automatically:
-1. Creates a port 443 (HTTPS) listener
-2. Generates or loads a self-signed certificate
-3. Terminates TLS/SSL on port 443
-4. Forwards decrypted HTTP traffic to your backend
+Domain Router supports HTTPS with automatic SSL/TLS termination. When you enable SSL for a route:
+
+1. Port 443 listener is created automatically
+2. Self-signed certificate is generated (or loaded from cache)
+3. TLS termination happens at the proxy
+4. Decrypted HTTP traffic is forwarded to your backend
 
 ## How It Works
 
@@ -15,98 +16,103 @@ Client (HTTPS) → Port 443 (TLS Termination) → Backend (Plain HTTP)
 Client (HTTP)  → Port 80                     → Backend (Plain HTTP)
 ```
 
-### Quick Setup
+## Quick Setup
 
-1. Click "Quick Setup (80 & 443)" button in the UI
-2. Enter your backend target port (e.g., 4000)
+1. Click "Quick Setup (80 & 443)" in the UI
+2. Enter your backend target port (e.g., `3000`)
 3. Click "Add Routes"
 4. Click "Start Proxy"
 
-This will automatically:
-- Create route: `localhost:80 → 127.0.0.1:4000` (HTTP)
-- Create route: `localhost:443 → 127.0.0.1:4000` (HTTPS with TLS termination)
-- Generate a self-signed certificate for "localhost"
+This automatically:
+- Creates `localhost:80 → 127.0.0.1:3000` (HTTP)
+- Creates `localhost:443 → 127.0.0.1:3000` (HTTPS with TLS)
+- Generates a self-signed certificate for "localhost"
 
-### Testing
+## Testing
 
 **Test HTTP:**
 ```bash
-curl http://localhost:80
+curl http://localhost
 ```
 
 **Test HTTPS:**
 ```bash
-curl -k https://localhost:443
-# -k flag ignores SSL certificate validation (needed for self-signed certs)
+# -k flag ignores SSL validation (needed for self-signed certs)
+curl -k https://localhost
 ```
 
-**Test with full certificate validation:**
+**Test with certificate validation:**
 ```bash
-# First, get the certificate location
-ls ~/.config/domain-router/certs/
-
-# Then use curl with the certificate
+# Use the generated certificate
 curl --cacert ~/.config/domain-router/certs/localhost.crt https://localhost
 ```
 
 ## Certificate Management
 
-### Self-Signed Certificates
+### Storage Location
 
-Certificates are automatically generated on first use and stored in:
+Certificates are stored in:
 ```
 ~/.config/domain-router/certs/
-├── localhost.crt  (Certificate)
-└── localhost.key  (Private Key)
+├── localhost.crt  # Certificate
+└── localhost.key  # Private Key
+```
+
+On Windows:
+```
+%APPDATA%\domain-router\certs\
 ```
 
 ### Certificate Details
 
-The self-signed certificates include:
-- Common Name (CN): The domain name (e.g., "localhost")
-- Subject Alternative Names (SANs):
+Generated certificates include:
+- **Common Name (CN)**: The domain name
+- **Subject Alternative Names (SANs)**:
   - The exact domain
-  - Wildcard for subdomains (e.g., *.localhost)
-  - "localhost"
+  - Wildcard for subdomains (e.g., `*.localhost`)
+  - `localhost`
 
 ### Regenerating Certificates
 
-If you need to regenerate certificates:
+If you need fresh certificates:
 ```bash
+# Linux
 rm ~/.config/domain-router/certs/localhost.*
-# Restart the proxy - new certificates will be generated
+
+# Windows (PowerShell)
+Remove-Item "$env:APPDATA\domain-router\certs\localhost.*"
 ```
 
-## Let's Encrypt (Future)
+Restart the proxy - new certificates will be generated automatically.
 
-Let's Encrypt support is planned for production use with real domains. Currently, the system uses self-signed certificates which are perfect for:
-- Development
-- Internal networks
-- Testing
-- Docker container access
+## Browser Warnings
 
-For production with real domains, you'll be able to:
-1. Configure your domain in the UI
-2. Enable "Let's Encrypt" mode
-3. The proxy will automatically obtain and renew valid SSL certificates
+Self-signed certificates will show browser warnings like "Your connection is not private". This is expected behavior.
 
-## Security Notes
+**To proceed:**
+1. Click "Advanced"
+2. Click "Proceed to localhost (unsafe)"
 
-- ✅ TLS termination happens at the proxy
-- ✅ Backend communication is plain HTTP (fast, no double encryption)
-- ✅ Private keys are stored securely in `~/.config/domain-router/certs/`
-- ✅ Self-signed certificates are regenerated if deleted
-- ⚠️ Self-signed certificates will show browser warnings (this is normal)
-- ⚠️ For production, use Let's Encrypt or provide your own certificates
+**Or add certificate to trusted store:**
+
+**Linux:**
+```bash
+sudo cp ~/.config/domain-router/certs/localhost.crt /usr/local/share/ca-certificates/
+sudo update-ca-certificates
+```
+
+**Windows:**
+1. Double-click the `.crt` file
+2. Click "Install Certificate"
+3. Select "Local Machine"
+4. Select "Trusted Root Certification Authorities"
+
+**macOS:**
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.config/domain-router/certs/localhost.crt
+```
 
 ## Troubleshooting
-
-### Browser shows "Your connection is not private"
-
-This is expected with self-signed certificates. You can:
-1. Click "Advanced" → "Proceed to localhost (unsafe)" 
-2. Or use curl with `-k` flag
-3. Or add the certificate to your system's trusted certificates
 
 ### Certificate errors
 
@@ -123,26 +129,49 @@ openssl s_client -connect localhost:443 -servername localhost
 
 ### HTTPS not working
 
-1. Make sure proxy is running (`lsof -i :443`)
+1. Verify proxy is running:
+   ```bash
+   lsof -i :443
+   ```
+
 2. Check logs for TLS errors
+
 3. Verify certificate files exist
+
 4. Try regenerating certificates
 
-## Technical Implementation
+### Connection refused on port 443
+
+- Ensure the proxy is started
+- Check if another service is using port 443:
+  ```bash
+  sudo lsof -i :443
+  ```
+
+## Technical Details
 
 - **TLS Library**: `tokio-rustls` with `rustls` backend
 - **Certificate Generation**: `rcgen` library
-- **TLS Termination**: Port 443 accepts TLS connections, decrypts, forwards to backend
-- **HTTP Passthrough**: Port 80 forwards traffic as-is (no TLS)
+- **Supported TLS Versions**: TLS 1.2, TLS 1.3
+- **Key Size**: 2048-bit RSA
 
-## Architecture
+## Let's Encrypt (Future)
 
-[src-tauri/src/ssl/mod.rs](src-tauri/src/ssl/mod.rs):
-- Certificate generation
-- Certificate storage/loading
-- TLS configuration
+Let's Encrypt support is planned for production use with real domains. The foundation is in place but requires:
+- Public domain with valid DNS
+- Port 80 accessible from internet
+- HTTP-01 challenge handler implementation
 
-[src-tauri/src/proxy/mod.rs](src-tauri/src/proxy/mod.rs):
-- `start_https_server()`: HTTPS listener on port 443
-- `handle_https_connection()`: TLS termination and forwarding
-- `start_port_server()`: HTTP listener for other ports
+For now, self-signed certificates are perfect for:
+- Development
+- Internal networks
+- Docker container access
+- Testing
+
+## Security Notes
+
+- TLS termination happens at the proxy
+- Backend communication is plain HTTP (no double encryption)
+- Private keys are stored with user-only permissions
+- Self-signed certificates are regenerated if deleted
+- For production with real domains, use Let's Encrypt or provide your own certificates
