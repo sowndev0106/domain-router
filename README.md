@@ -1,6 +1,32 @@
 # Domain Router 🚀
 
-Reverse proxy và SSL/TLS manager cho localhost và Docker containers trên Ubuntu.
+Reverse proxy và SSL/TLS manager cho localhost và Docker containers.
+
+## 📥 Downloads
+
+| Platform | File | Size |
+|----------|------|------|
+| **Windows** | [Domain Router_1.0.0_x64-setup.exe](releases/Domain%20Router_1.0.0_x64-setup.exe) | ~2 MB |
+| **Linux (AppImage)** | [Domain Router_1.0.0_amd64.AppImage](releases/Domain%20Router_1.0.0_amd64.AppImage) | ~77 MB |
+| **Linux (Deb)** | [Domain Router_1.0.0_amd64.deb](releases/Domain%20Router_1.0.0_amd64.deb) | ~3.5 MB |
+
+### Quick Install
+
+**Windows:**
+```
+Download và chạy Domain Router_1.0.0_x64-setup.exe
+```
+
+**Linux (AppImage):**
+```bash
+chmod +x "Domain Router_1.0.0_amd64.AppImage"
+./"Domain Router_1.0.0_amd64.AppImage"
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo dpkg -i "Domain Router_1.0.0_amd64.deb"
+```
 
 ## ✨ Features
 
@@ -101,7 +127,11 @@ npm run tauri:dev
 
 ## ⚙️ Requirements
 
-- Ubuntu 20.04+ (tested on 22.04 & 24.04)
+### For Users (Pre-built downloads):
+- **Windows**: Windows 10/11 (x64)
+- **Linux**: Ubuntu 20.04+ / Debian 11+ (x64)
+
+### For Developers (Building from source):
 - Node.js 20+
 - Rust 1.75+
 - 2GB RAM minimum

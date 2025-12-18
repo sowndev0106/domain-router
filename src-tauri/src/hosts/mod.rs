@@ -2,7 +2,12 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+const HOSTS_FILE: &str = r"C:\Windows\System32\drivers\etc\hosts";
+
+#[cfg(not(target_os = "windows"))]
 const HOSTS_FILE: &str = "/etc/hosts";
+
 const MARKER_START: &str = "# === Domain Router START ===";
 const MARKER_END: &str = "# === Domain Router END ===";
 
@@ -90,13 +95,10 @@ fn write_hosts(content: &str) -> Result<()> {
 }
 
 fn backup_hosts() -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let backup_dir = format!("{}/.config/domain-router", home);
-    fs::create_dir_all(&backup_dir)?;
-
+    let backup_dir = get_backup_dir()?;
     let backup_path = format!("{}/hosts.backup", backup_dir);
     fs::copy(HOSTS_FILE, backup_path)
-        .context("Failed to backup /etc/hosts")?;
+        .context("Failed to backup hosts file")?;
 
     Ok(())
 }
@@ -188,17 +190,119 @@ fn remove_domain_from_content(content: &str, domain: &str) -> Result<String> {
 }
 
 fn is_root() -> bool {
-    unsafe { libc::geteuid() == 0 }
+    #[cfg(target_os = "windows")]
+    {
+        is_elevated_windows()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsafe { libc::geteuid() == 0 }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_elevated_windows() -> bool {
+    use std::mem;
+    use std::ptr;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    unsafe {
+        let mut token_handle = ptr::null_mut();
+        let current_process = GetCurrentProcess();
+
+        if OpenProcessToken(current_process, TOKEN_QUERY, &mut token_handle) == 0 {
+            return false;
+        }
+
+        let mut elevation: TOKEN_ELEVATION = mem::zeroed();
+        let mut size: u32 = mem::size_of::<TOKEN_ELEVATION>() as u32;
+
+        let result = GetTokenInformation(
+            token_handle,
+            TokenElevation,
+            &mut elevation as *mut _ as *mut std::ffi::c_void,
+            size,
+            &mut size,
+        );
+
+        CloseHandle(token_handle);
+
+        result != 0 && elevation.TokenIsElevated != 0
+    }
+}
+
+/// Get cross-platform backup directory
+fn get_backup_dir() -> Result<String> {
+    let config_dir = dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
+    let backup_dir = config_dir.join("domain-router");
+    fs::create_dir_all(&backup_dir)?;
+    Ok(backup_dir.to_string_lossy().to_string())
+}
+
+/// Copy file with elevated privileges (cross-platform)
+fn copy_with_elevation(source: &str, dest: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        copy_with_elevation_windows(source, dest)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        copy_with_elevation_unix(source, dest)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn copy_with_elevation_unix(source: &str, dest: &str) -> Result<()> {
+    let status = Command::new("pkexec")
+        .arg("cp")
+        .arg(source)
+        .arg(dest)
+        .status()
+        .context("Failed to execute pkexec")?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to copy file with elevated privileges");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn copy_with_elevation_windows(source: &str, dest: &str) -> Result<()> {
+    // On Windows, use PowerShell with Start-Process -Verb RunAs to trigger UAC
+    let script = format!(
+        "Copy-Item -Path '{}' -Destination '{}' -Force",
+        source.replace("'", "''"),
+        dest.replace("'", "''")
+    );
+
+    let status = Command::new("powershell")
+        .args([
+            "-Command",
+            &format!(
+                "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-Command', '{}'",
+                script.replace("'", "''")
+            ),
+        ])
+        .status()
+        .context("Failed to execute PowerShell with elevation")?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to copy file with elevated privileges");
+    }
+    Ok(())
 }
 
 fn add_entry_with_sudo(domain: &str) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let backup_dir = format!("{}/.config/domain-router", home);
-    fs::create_dir_all(&backup_dir)?;
+    let backup_dir = get_backup_dir()?;
 
     // Read current hosts
     let current = fs::read_to_string(HOSTS_FILE)
-        .context("Failed to read /etc/hosts")?;
+        .context("Failed to read hosts file")?;
 
     // Generate new content
     let new_content = add_domain_to_content(&current, domain)?;
@@ -207,17 +311,8 @@ fn add_entry_with_sudo(domain: &str) -> Result<()> {
     let temp_file = format!("{}/hosts.tmp", backup_dir);
     fs::write(&temp_file, &new_content)?;
 
-    // Use pkexec to copy it
-    let status = Command::new("pkexec")
-        .arg("cp")
-        .arg(&temp_file)
-        .arg(HOSTS_FILE)
-        .status()
-        .context("Failed to execute pkexec")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to add entry to /etc/hosts with sudo");
-    }
+    // Copy with elevated privileges
+    copy_with_elevation(&temp_file, HOSTS_FILE)?;
 
     // Cleanup
     let _ = fs::remove_file(&temp_file);
@@ -226,13 +321,11 @@ fn add_entry_with_sudo(domain: &str) -> Result<()> {
 }
 
 fn remove_entry_with_sudo(domain: &str) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let backup_dir = format!("{}/.config/domain-router", home);
-    fs::create_dir_all(&backup_dir)?;
+    let backup_dir = get_backup_dir()?;
 
     // Read current hosts
     let current = fs::read_to_string(HOSTS_FILE)
-        .context("Failed to read /etc/hosts")?;
+        .context("Failed to read hosts file")?;
 
     // Generate new content
     let new_content = remove_domain_from_content(&current, domain)?;
@@ -241,17 +334,8 @@ fn remove_entry_with_sudo(domain: &str) -> Result<()> {
     let temp_file = format!("{}/hosts.tmp", backup_dir);
     fs::write(&temp_file, &new_content)?;
 
-    // Use pkexec to copy it
-    let status = Command::new("pkexec")
-        .arg("cp")
-        .arg(&temp_file)
-        .arg(HOSTS_FILE)
-        .status()
-        .context("Failed to execute pkexec")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to remove entry from /etc/hosts with sudo");
-    }
+    // Copy with elevated privileges
+    copy_with_elevation(&temp_file, HOSTS_FILE)?;
 
     // Cleanup
     let _ = fs::remove_file(&temp_file);
@@ -341,13 +425,11 @@ fn parse_domain_entries(content: &str) -> Result<Vec<(String, bool)>> {
 }
 
 fn toggle_entry_with_sudo(domain: &str, enabled: bool) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let backup_dir = format!("{}/.config/domain-router", home);
-    fs::create_dir_all(&backup_dir)?;
+    let backup_dir = get_backup_dir()?;
 
     // Read current hosts
     let current = fs::read_to_string(HOSTS_FILE)
-        .context("Failed to read /etc/hosts")?;
+        .context("Failed to read hosts file")?;
 
     // Generate new content
     let new_content = toggle_domain_in_content(&current, domain, enabled)?;
@@ -356,17 +438,8 @@ fn toggle_entry_with_sudo(domain: &str, enabled: bool) -> Result<()> {
     let temp_file = format!("{}/hosts.tmp", backup_dir);
     fs::write(&temp_file, &new_content)?;
 
-    // Use pkexec to copy it
-    let status = Command::new("pkexec")
-        .arg("cp")
-        .arg(&temp_file)
-        .arg(HOSTS_FILE)
-        .status()
-        .context("Failed to execute pkexec")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to toggle entry in /etc/hosts with sudo");
-    }
+    // Copy with elevated privileges
+    copy_with_elevation(&temp_file, HOSTS_FILE)?;
 
     // Cleanup
     let _ = fs::remove_file(&temp_file);
@@ -446,28 +519,18 @@ fn remove_any_domain_from_content(content: &str, domain: &str) -> Result<String>
 }
 
 fn toggle_any_entry_with_sudo(domain: &str, enabled: bool) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let backup_dir = format!("{}/.config/domain-router", home);
-    fs::create_dir_all(&backup_dir)?;
+    let backup_dir = get_backup_dir()?;
 
     let current = fs::read_to_string(HOSTS_FILE)
-        .context("Failed to read /etc/hosts")?;
+        .context("Failed to read hosts file")?;
 
     let new_content = toggle_any_domain_in_content(&current, domain, enabled)?;
 
     let temp_file = format!("{}/hosts.tmp", backup_dir);
     fs::write(&temp_file, &new_content)?;
 
-    let status = Command::new("pkexec")
-        .arg("cp")
-        .arg(&temp_file)
-        .arg(HOSTS_FILE)
-        .status()
-        .context("Failed to execute pkexec")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to toggle entry in /etc/hosts with sudo");
-    }
+    // Copy with elevated privileges
+    copy_with_elevation(&temp_file, HOSTS_FILE)?;
 
     let _ = fs::remove_file(&temp_file);
 
@@ -475,28 +538,18 @@ fn toggle_any_entry_with_sudo(domain: &str, enabled: bool) -> Result<()> {
 }
 
 fn delete_any_entry_with_sudo(domain: &str) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let backup_dir = format!("{}/.config/domain-router", home);
-    fs::create_dir_all(&backup_dir)?;
+    let backup_dir = get_backup_dir()?;
 
     let current = fs::read_to_string(HOSTS_FILE)
-        .context("Failed to read /etc/hosts")?;
+        .context("Failed to read hosts file")?;
 
     let new_content = remove_any_domain_from_content(&current, domain)?;
 
     let temp_file = format!("{}/hosts.tmp", backup_dir);
     fs::write(&temp_file, &new_content)?;
 
-    let status = Command::new("pkexec")
-        .arg("cp")
-        .arg(&temp_file)
-        .arg(HOSTS_FILE)
-        .status()
-        .context("Failed to execute pkexec")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to delete entry from /etc/hosts with sudo");
-    }
+    // Copy with elevated privileges
+    copy_with_elevation(&temp_file, HOSTS_FILE)?;
 
     let _ = fs::remove_file(&temp_file);
 

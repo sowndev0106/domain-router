@@ -1,60 +1,88 @@
 use anyhow::Result;
-use std::process::Command;
 use log::{info, error};
+
+#[cfg(not(target_os = "windows"))]
+use std::process::Command;
 
 /// Check if we need elevated privileges for the given ports
 pub fn needs_privilege(ports: &[u16]) -> bool {
-    ports.iter().any(|&port| port < 1024)
+    // On Windows, binding to ports < 1024 doesn't require special privileges
+    #[cfg(target_os = "windows")]
+    {
+        let _ = ports;
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        ports.iter().any(|&port| port < 1024)
+    }
 }
 
-/// Check if the current binary has CAP_NET_BIND_SERVICE capability
+/// Check if the current binary has CAP_NET_BIND_SERVICE capability (Linux only)
 pub fn has_capability() -> bool {
-    // Get the current executable path
-    let exe_path = match std::env::current_exe() {
-        Ok(path) => path,
-        Err(_) => return false,
-    };
+    #[cfg(target_os = "windows")]
+    {
+        // Windows doesn't use Linux capabilities - always return true
+        true
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Get the current executable path
+        let exe_path = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(_) => return false,
+        };
 
-    // Check capabilities using getcap
-    let output = Command::new("getcap")
-        .arg(&exe_path)
-        .output();
+        // Check capabilities using getcap
+        let output = Command::new("getcap")
+            .arg(&exe_path)
+            .output();
 
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.contains("cap_net_bind_service")
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                stdout.contains("cap_net_bind_service")
+            }
+            Err(_) => false,
         }
-        Err(_) => false,
     }
 }
 
 /// Grant CAP_NET_BIND_SERVICE capability to the current binary using pkexec
-/// This will show a GUI dialog asking for the user's password
+/// This will show a GUI dialog asking for the user's password (Linux only)
 pub fn request_capability() -> Result<()> {
-    info!("Requesting privilege to bind to ports 80 and 443...");
-
-    // Get the current executable path
-    let exe_path = std::env::current_exe()
-        .map_err(|e| anyhow::anyhow!("Failed to get executable path: {}", e))?;
-
-    let exe_path_str = exe_path.to_string_lossy();
-
-    // Use pkexec to run setcap with elevated privileges
-    // This will show a GUI dialog
-    let status = Command::new("pkexec")
-        .arg("setcap")
-        .arg("cap_net_bind_service=+ep")
-        .arg(exe_path_str.as_ref())
-        .status()
-        .map_err(|e| anyhow::anyhow!("Failed to execute pkexec: {}", e))?;
-
-    if status.success() {
-        info!("Successfully granted capability to bind to privileged ports");
+    #[cfg(target_os = "windows")]
+    {
+        // Windows doesn't need special capabilities for port binding
+        info!("Windows: No special capability needed for port binding");
         Ok(())
-    } else {
-        error!("Failed to grant capability - user may have cancelled or entered wrong password");
-        Err(anyhow::anyhow!("Failed to grant capability"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        info!("Requesting privilege to bind to ports 80 and 443...");
+
+        // Get the current executable path
+        let exe_path = std::env::current_exe()
+            .map_err(|e| anyhow::anyhow!("Failed to get executable path: {}", e))?;
+
+        let exe_path_str = exe_path.to_string_lossy();
+
+        // Use pkexec to run setcap with elevated privileges
+        // This will show a GUI dialog
+        let status = Command::new("pkexec")
+            .arg("setcap")
+            .arg("cap_net_bind_service=+ep")
+            .arg(exe_path_str.as_ref())
+            .status()
+            .map_err(|e| anyhow::anyhow!("Failed to execute pkexec: {}", e))?;
+
+        if status.success() {
+            info!("Successfully granted capability to bind to privileged ports");
+            Ok(())
+        } else {
+            error!("Failed to grant capability - user may have cancelled or entered wrong password");
+            Err(anyhow::anyhow!("Failed to grant capability"))
+        }
     }
 }
 
